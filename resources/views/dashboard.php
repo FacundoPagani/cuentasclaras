@@ -95,7 +95,7 @@ $cardSummaryRows = array_sum($cardCountsByUser);
 
     <section class="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
       <button data-modal-open="expense-modal" <?= $isCommonLocked ? 'disabled' : '' ?> class="rounded-md bg-emerald-700 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">Gasto comun</button>
-      <button data-modal-open="card-modal" <?= $isObligationLocked ? 'disabled' : '' ?> class="rounded-md bg-emerald-700 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">Tarjeta</button>
+      <button data-modal-open="card-modal" <?= $isObligationLocked ? 'disabled' : '' ?> class="rounded-md bg-emerald-700 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">Consumo de Tarjeta</button>
       <button data-modal-open="obligation-modal" <?= $isObligationLocked ? 'disabled' : '' ?> class="rounded-md bg-emerald-700 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300">Gasto fijo</button>
       <button data-modal-open="catalog-modal" class="rounded-md bg-slate-950 px-3 py-1 text-sm font-medium text-white hover:bg-slate-800">Catalogos</button>
       <span class="ml-auto text-xs text-slate-500 max-sm:ml-0">Carga rapida: <?= e($commonCycle) ?> · Pagos del mes: <?= e($cycle) ?></span>

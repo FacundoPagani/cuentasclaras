@@ -14,7 +14,7 @@
       <div class="mb-6">
         <p class="text-sm font-medium text-emerald-700">CuentasClaras</p>
         <h1 class="text-2xl font-semibold">Ingresar</h1>
-        <p class="mt-1 text-sm text-slate-500">Tus gastos del hogar quedan protegidos con sesion privada.</p>
+        <p class="mt-1 text-sm text-slate-500">Tus gastos del hogar quedan protegidos con una sesión privada.</p>
       </div>
       <?php if ($error = flash('error')): ?>
         <div class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><?= e($error) ?></div>
@@ -26,7 +26,7 @@
           <input name="username" required autocomplete="username" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-base outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">
         </label>
         <label class="block">
-          <span class="text-sm font-medium">Contrasena</span>
+          <span class="text-sm font-medium">Contraseña</span>
           <input name="password" type="password" required autocomplete="current-password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-base outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100">
         </label>
         <button class="w-full rounded-md bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800">Entrar</button>

@@ -24,7 +24,6 @@ Todos los montos se guardan como centavos enteros (`amount_cents`) para evitar e
 ├── components/                  # UI shadcn y bloques
 ├── config/                      # Configuracion PHP
 ├── database/schema.sql          # Esquema SQLite
-├── docker/nginx/nginx.conf      # Nginx + proxy headers
 ├── docker/php/entrypoint.sh     # Migracion y seed inicial
 ├── public/index.php             # Front controller PHP
 ├── resources/views/             # Login y dashboard PHP
@@ -33,18 +32,18 @@ Todos los montos se guardan como centavos enteros (`amount_cents`) para evitar e
 └── docker-compose.yml
 ```
 
-Levantar la app PHP:
+Levantar `php-fpm`:
 
 ```bash
 docker compose up --build
 ```
 
-Por defecto publica el Nginx del stack en el puerto `80` del VPS y queda configurada para `https://cuentasclaras.pagani.ar`.
+Por defecto publica FastCGI solo en `127.0.0.1:9001`. El Nginx existente del VPS debe servir `public/` y enviar los `.php` a ese puerto.
 
-Para desarrollo local se puede levantar con variables temporales:
+Para desarrollo local sin Nginx se puede usar el servidor embebido de PHP:
 
 ```bash
-APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 HTTP_PORT=8080 docker compose up --build
+APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 DB_PATH=storage/cuentasclaras.sqlite php -S localhost:8080 -t public
 ```
 
 Abrir `http://localhost:8080`.
@@ -93,25 +92,78 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Las variables relevantes son:
+El contenedor del proyecto solo corre `php-fpm`; no incluye Nginx. El Nginx existente del VPS sirve `public/` y deriva PHP al puerto FastCGI local.
+
+Variables relevantes:
 
 ```bash
-export APP_ENV=production
-export APP_URL=https://cuentasclaras.pagani.ar
-export SESSION_SECURE=1
-export INIT_USER_PASSWORD='CambiarEstaClave'
-export INIT_SECOND_USER_PASSWORD='CambiarEstaClaveTambien'
+APP_ENV=production
+APP_URL=https://cuentasclaras.pagani.ar
+SESSION_SECURE=1
+FPM_BIND=127.0.0.1
+FPM_PORT=9001
 ```
 
-El `docker-compose.yml` publica el Nginx incluido en el stack como `0.0.0.0:80`. Ese Nginx sirve `public/` y deriva PHP a `php-fpm`, por lo que no hace falta otro reverse proxy en el VPS.
+Agregar al Nginx del VPS, que ya tiene el certificado para `pagani.ar`/`*.pagani.ar`:
 
-En Cloudflare:
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name cuentasclaras.pagani.ar;
+    return 301 https://cuentasclaras.pagani.ar$request_uri;
+}
+```
 
-- El registro `cuentasclaras.pagani.ar` debe apuntar al VPS y estar proxied, nube naranja.
-- Con esta configuracion el origen escucha HTTP en `80`; usar SSL/TLS `Flexible` en Cloudflare para que el navegador entre por `https://cuentasclaras.pagani.ar`.
-- Si se quiere usar `Full` o `Full (strict)`, hay que agregar certificado TLS en el Nginx del stack y publicar tambien `443`.
+Y el vhost HTTPS:
 
-El firewall del VPS debe permitir entrada al puerto `80`.
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name cuentasclaras.pagani.ar;
+
+    ssl_certificate /etc/nginx/certs/origin.crt;
+    ssl_certificate_key /etc/nginx/certs/origin.key;
+
+    root /home/fpagani/cuentasclaras/public;
+    index index.php;
+
+    client_max_body_size 5m;
+
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options DENY;
+    add_header Referrer-Policy strict-origin-when-cross-origin;
+
+    location / {
+        try_files $uri /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9001;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/public$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT /var/www/html/public;
+        fastcgi_param HTTPS on;
+        fastcgi_param HTTP_X_FORWARDED_PROTO https;
+        fastcgi_param HTTP_X_FORWARDED_HOST $host;
+        fastcgi_read_timeout 60s;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    location ~* \.(sqlite|db|sql|env|ini)$ {
+        deny all;
+    }
+}
+```
+
+Si el checkout esta en otra ruta, cambiar `root /home/fpagani/cuentasclaras/public;`. Esa ruta debe ser legible por el usuario de Nginx del VPS; si esta bajo `/home`, revisar permisos de los directorios padre o mover el checkout a una ruta como `/opt/cuentasclaras`. Mantener `SCRIPT_FILENAME /var/www/html/public...` porque esa es la ruta del codigo dentro del contenedor PHP.
+
+Con este modelo no hace falta copiar certificados dentro del stack ni definir `TLS_CERT_PATH`/`TLS_KEY_PATH`. Cloudflare puede quedar en `Full` o `Full (strict)` contra el Nginx existente del VPS.
 
 ## 3. Base de datos y autenticacion
 

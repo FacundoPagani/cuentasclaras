@@ -39,12 +39,12 @@ Levantar la app PHP:
 docker compose up --build
 ```
 
-Por defecto queda disponible para el proxy local en `http://127.0.0.1:8080` y configurada para `https://cuentasclaras.pagani.ar`.
+Por defecto publica el Nginx del stack en el puerto `80` del VPS y queda configurada para `https://cuentasclaras.pagani.ar`.
 
 Para desarrollo local se puede levantar con variables temporales:
 
 ```bash
-APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 docker compose up --build
+APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 HTTP_PORT=8080 docker compose up --build
 ```
 
 Abrir `http://localhost:8080`.
@@ -103,33 +103,15 @@ export INIT_USER_PASSWORD='CambiarEstaClave'
 export INIT_SECOND_USER_PASSWORD='CambiarEstaClaveTambien'
 ```
 
-El `docker-compose.yml` publica Nginx solo en `127.0.0.1:8080`. Poner delante un reverse proxy con HTTPS que apunte a ese puerto. Ejemplo Caddy:
+El `docker-compose.yml` publica el Nginx incluido en el stack como `0.0.0.0:80`. Ese Nginx sirve `public/` y deriva PHP a `php-fpm`, por lo que no hace falta otro reverse proxy en el VPS.
 
-```caddyfile
-cuentasclaras.pagani.ar {
-    reverse_proxy 127.0.0.1:8080
-}
-```
+En Cloudflare:
 
-Si se usa Nginx del host como reverse proxy:
+- El registro `cuentasclaras.pagani.ar` debe apuntar al VPS y estar proxied, nube naranja.
+- Con esta configuracion el origen escucha HTTP en `80`; usar SSL/TLS `Flexible` en Cloudflare para que el navegador entre por `https://cuentasclaras.pagani.ar`.
+- Si se quiere usar `Full` o `Full (strict)`, hay que agregar certificado TLS en el Nginx del stack y publicar tambien `443`.
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name cuentasclaras.pagani.ar;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
-
-En Cloudflare usar modo SSL/TLS `Full` o `Full (strict)` cuando el VPS tenga certificado valido. Evitar `Flexible` para no mezclar HTTPS publico con HTTP hacia el origen.
+El firewall del VPS debe permitir entrada al puerto `80`.
 
 ## 3. Base de datos y autenticacion
 

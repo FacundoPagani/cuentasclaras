@@ -24,7 +24,8 @@ Todos los montos se guardan como centavos enteros (`amount_cents`) para evitar e
 ├── components/                  # UI shadcn y bloques
 ├── config/                      # Configuracion PHP
 ├── database/schema.sql          # Esquema SQLite
-├── docker/php/entrypoint.sh     # Migracion y seed inicial
+├── docker/nginx/default.conf    # Nginx interno de la imagen
+├── docker/php/entrypoint.sh     # Migracion, seed inicial y arranque
 ├── public/index.php             # Front controller PHP
 ├── resources/views/             # Login y dashboard PHP
 ├── src/                         # Core, auth, repositorio y liquidacion
@@ -32,13 +33,13 @@ Todos los montos se guardan como centavos enteros (`amount_cents`) para evitar e
 └── docker-compose.yml
 ```
 
-Levantar `php-fpm`:
+Levantar la app:
 
 ```bash
 docker compose up --build
 ```
 
-Por defecto publica FastCGI solo en `127.0.0.1:9001`. El Nginx existente del VPS debe servir `public/` y enviar los `.php` a ese puerto.
+Por defecto no publica puertos al host. El contenedor incluye Nginx + PHP-FPM, se conecta a la red Docker externa `web` y queda accesible para el Nginx de `pagani.ar` como `http://cuentasclaras:8080`.
 
 Para desarrollo local sin Nginx se puede usar el servidor embebido de PHP:
 
@@ -48,25 +49,25 @@ APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 DB_PATH=storage/cue
 
 Abrir `http://localhost:8080`.
 
-El `Dockerfile` instala `sqlite-dev` solo durante la construccion para compilar `pdo_sqlite`; luego lo elimina y deja `sqlite` como dependencia runtime.
+El `Dockerfile` instala Nginx, `sqlite` runtime y `sqlite-dev` solo durante la construccion para compilar `pdo_sqlite`; luego elimina las dependencias de build.
 
 Si SQLite devuelve `attempt to write a readonly database`, normalmente el archivo fue creado por `root` durante la migracion inicial. Reparar permisos del volumen:
 
 ```bash
-sudo docker compose exec php chown -R www-data:www-data /var/www/html/storage
-sudo docker compose exec php chmod -R u+rwX,g+rwX /var/www/html/storage
+sudo docker compose exec app chown -R www-data:www-data /var/www/html/storage
+sudo docker compose exec app chmod -R u+rwX,g+rwX /var/www/html/storage
 ```
 
 Reiniciar todos los datos cargados, conservando usuarios y categorias:
 
 ```bash
-sudo docker compose exec php php bin/reset-data.php
+sudo docker compose exec app php bin/reset-data.php
 ```
 
 Sincronizar los usuarios activos del hogar con `docker-compose.yml` sin borrar movimientos:
 
 ```bash
-sudo docker compose exec php php bin/sync-household-users.php
+sudo docker compose exec app php bin/sync-household-users.php
 ```
 
 Usuarios iniciales:
@@ -77,7 +78,7 @@ Usuarios iniciales:
 Cambiar esas credenciales con variables de entorno antes de desplegar. Para crear o resetear usuarios:
 
 ```bash
-docker compose exec php php bin/create-user.php facu "NuevaClaveSegura" "Facu"
+docker compose exec app php bin/create-user.php facu "NuevaClaveSegura" "Facu"
 ```
 
 ## 2.1 Deploy en `https://cuentasclaras.pagani.ar`
@@ -92,7 +93,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-El contenedor del proyecto solo corre `php-fpm`; no incluye Nginx. El Nginx existente del VPS sirve `public/` y deriva PHP al puerto FastCGI local.
+El contenedor del proyecto es autocontenido: incluye Nginx, PHP-FPM, el codigo de la app y sirve `public/` internamente. El Nginx de `pagani.ar` solo hace reverse proxy HTTP al contenedor.
 
 Variables relevantes:
 
@@ -100,11 +101,16 @@ Variables relevantes:
 APP_ENV=production
 APP_URL=https://cuentasclaras.pagani.ar
 SESSION_SECURE=1
-FPM_BIND=127.0.0.1
-FPM_PORT=9001
+PAGANI_NETWORK=web
 ```
 
-Agregar al Nginx del VPS, que ya tiene el certificado para `pagani.ar`/`*.pagani.ar`:
+`PAGANI_NETWORK` debe ser la red Docker donde esta conectado el contenedor Nginx de `pagani.ar`. Para verla:
+
+```bash
+docker inspect <contenedor-nginx-pagani> --format '{{json .NetworkSettings.Networks}}'
+```
+
+Agregar al `default.conf` del Nginx de `pagani.ar`, que ya tiene el certificado para `pagani.ar`/`*.pagani.ar`:
 
 ```nginx
 server {
@@ -126,44 +132,20 @@ server {
     ssl_certificate /etc/nginx/certs/origin.crt;
     ssl_certificate_key /etc/nginx/certs/origin.key;
 
-    root /home/fpagani/cuentasclaras/public;
-    index index.php;
-
     client_max_body_size 5m;
 
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options DENY;
-    add_header Referrer-Policy strict-origin-when-cross-origin;
-
     location / {
-        try_files $uri /index.php$is_args$args;
-    }
-
-    location ~ \.php$ {
-        try_files $uri =404;
-        include fastcgi_params;
-        fastcgi_pass 127.0.0.1:9001;
-        fastcgi_param SCRIPT_FILENAME /var/www/html/public$fastcgi_script_name;
-        fastcgi_param DOCUMENT_ROOT /var/www/html/public;
-        fastcgi_param HTTPS on;
-        fastcgi_param HTTP_X_FORWARDED_PROTO https;
-        fastcgi_param HTTP_X_FORWARDED_HOST $host;
-        fastcgi_read_timeout 60s;
-    }
-
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-
-    location ~* \.(sqlite|db|sql|env|ini)$ {
-        deny all;
+        proxy_pass http://cuentasclaras:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
-Si el checkout esta en otra ruta, cambiar `root /home/fpagani/cuentasclaras/public;`. Esa ruta debe ser legible por el usuario de Nginx del VPS; si esta bajo `/home`, revisar permisos de los directorios padre o mover el checkout a una ruta como `/opt/cuentasclaras`. Mantener `SCRIPT_FILENAME /var/www/html/public...` porque esa es la ruta del codigo dentro del contenedor PHP.
-
-Con este modelo no hace falta copiar certificados dentro del stack ni definir `TLS_CERT_PATH`/`TLS_KEY_PATH`. Cloudflare puede quedar en `Full` o `Full (strict)` contra el Nginx existente del VPS.
+Con este modelo no hace falta montar `public/` en el contenedor `pagani.ar`, copiar certificados dentro del stack ni definir `TLS_CERT_PATH`/`TLS_KEY_PATH`. Cloudflare puede quedar en `Full` o `Full (strict)` contra el Nginx existente de `pagani.ar`.
 
 ## 3. Base de datos y autenticacion
 

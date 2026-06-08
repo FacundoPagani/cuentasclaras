@@ -1,8 +1,9 @@
 services:
-  php:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: cuentasclaras
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-production}
@@ -16,10 +17,18 @@ services:
       INIT_SECOND_USER_PASSWORD: ${INIT_SECOND_USER_PASSWORD:-132456}
       INIT_SECOND_USER_NAME: ${INIT_SECOND_USER_NAME:-Judi}
     volumes:
-      - ./:/var/www/html
       - cuentasclaras_data:/var/www/html/storage
-    ports:
-      - "${FPM_BIND:-127.0.0.1}:${FPM_PORT:-9001}:9000"
+    expose:
+      - "8080"
+    networks:
+      web:
+        aliases:
+          - cuentasclaras
 
 volumes:
   cuentasclaras_data:
+
+networks:
+  web:
+    external: true
+    name: ${PAGANI_NETWORK:-web}

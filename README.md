@@ -39,6 +39,14 @@ Levantar la app PHP:
 docker compose up --build
 ```
 
+Por defecto queda disponible para el proxy local en `http://127.0.0.1:8080` y configurada para `https://cuentasclaras.pagani.ar`.
+
+Para desarrollo local se puede levantar con variables temporales:
+
+```bash
+APP_ENV=local APP_URL=http://localhost:8080 SESSION_SECURE=0 docker compose up --build
+```
+
 Abrir `http://localhost:8080`.
 
 El `Dockerfile` instala `sqlite-dev` solo durante la construccion para compilar `pdo_sqlite`; luego lo elimina y deja `sqlite` como dependencia runtime.
@@ -67,11 +75,61 @@ Usuarios iniciales:
 - `facu` / `132456`
 - `judi` / `132456`
 
-Cambiar esas credenciales en `docker-compose.yml` antes de desplegar. Para crear o resetear usuarios:
+Cambiar esas credenciales con variables de entorno antes de desplegar. Para crear o resetear usuarios:
 
 ```bash
 docker compose exec php php bin/create-user.php facu "NuevaClaveSegura" "Facu"
 ```
+
+## 2.1 Deploy en `https://cuentasclaras.pagani.ar`
+
+El subdominio permite servir la app desde la raiz `/`, por lo que no hace falta adaptar rutas internas. Las rutas absolutas como `/dashboard`, `/login` y `/assets/app.css` funcionan correctamente en `https://cuentasclaras.pagani.ar`.
+
+Valores recomendados en el VPS:
+
+```bash
+cp .env.example .env
+# editar .env y cambiar las contrasenas iniciales
+docker compose up -d --build
+```
+
+Las variables relevantes son:
+
+```bash
+export APP_ENV=production
+export APP_URL=https://cuentasclaras.pagani.ar
+export SESSION_SECURE=1
+export INIT_USER_PASSWORD='CambiarEstaClave'
+export INIT_SECOND_USER_PASSWORD='CambiarEstaClaveTambien'
+```
+
+El `docker-compose.yml` publica Nginx solo en `127.0.0.1:8080`. Poner delante un reverse proxy con HTTPS que apunte a ese puerto. Ejemplo Caddy:
+
+```caddyfile
+cuentasclaras.pagani.ar {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Si se usa Nginx del host como reverse proxy:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name cuentasclaras.pagani.ar;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+En Cloudflare usar modo SSL/TLS `Full` o `Full (strict)` cuando el VPS tenga certificado valido. Evitar `Flexible` para no mezclar HTTPS publico con HTTP hacia el origen.
 
 ## 3. Base de datos y autenticacion
 
